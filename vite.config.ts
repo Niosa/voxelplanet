@@ -16,12 +16,13 @@ export default defineConfig({
   },
   build: {
     target: 'esnext',
-    // Keep WASM as a separate chunk for async loading
+    // Keep WASM as a separate chunk for async loading.
+    // Rolldown (Vite 8) requires manualChunks to be a function, not an object.
     rollupOptions: {
       output: {
-        manualChunks: {
-          babylon: ['@babylonjs/core'],
-          'babylon-loaders': ['@babylonjs/loaders'],
+        manualChunks(id: string) {
+          if (id.includes('@babylonjs/loaders')) return 'babylon-loaders';
+          if (id.includes('@babylonjs/')) return 'babylon';
         },
       },
     },
