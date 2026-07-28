@@ -21,6 +21,10 @@ export const Biome = {
   Mountain:    7,
   Volcanic:    8,
   ShallowWater: 9,
+  // Urban biomes (Step 7 — used by MeshClassifier for blocky/urban areas).
+  Village:     10,
+  Town:        11,
+  City:        12,
 } as const;
 
 export type Biome = (typeof Biome)[keyof typeof Biome];

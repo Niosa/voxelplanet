@@ -14,18 +14,31 @@ import { generateHeightmap, type HeightmapOptions } from '../globe/HeightmapGene
 import { generateVoronoiRegions, type VoronoiOptions } from '../globe/VoronoiRegions.ts';
 import { runCellularAutomata, type CAOptions } from '../globe/CellularAutomata.ts';
 import { generateCubeFace, type GenerateFaceOptions } from '../globe/CubeSphere.ts';
+import { greedyMesh, type MeshBuffers } from '../voxel/GreedyMesher.ts';
 
 export type ComputeTask =
   | { type: 'heightmap';  opts: HeightmapOptions }
   | { type: 'voronoi';    opts: VoronoiOptions & { biomeIds: Uint8Array } }
   | { type: 'ca';         opts: CAOptions }
-  | { type: 'cubeFace';   opts: GenerateFaceOptions };
+  | { type: 'cubeFace';   opts: GenerateFaceOptions }
+  // Step 7 — voxel chunk meshing. The worker marshals the SVDAG to a
+  // flat voxel array and runs the JS fallback of the chosen mesher.
+  // GPU dispatch is handled on the main thread (see GPUMesher).
+  | { type: 'meshChunk';  opts: MeshChunkOptions };
+
+export interface MeshChunkOptions {
+  chunkKey: string;
+  /** Flat voxel array, length = CHUNK_SIZE³. 0 = air. */
+  voxelData: Uint8Array;
+  strategy: 'blocky' | 'organic';
+}
 
 export type ComputeResponse =
   | { type: 'heightmap'; taskId: string; heights: Float32Array; biomeIds: Uint8Array; moistures: Float32Array; temperatures: Float32Array; resolution: number }
   | { type: 'voronoi';   taskId: string; seeds: unknown[]; cellMap: Uint16Array }
   | { type: 'ca';        taskId: string; density: Float32Array; width: number; height: number }
-  | { type: 'cubeFace';  taskId: string; positions: Float32Array; normals: Float32Array; uvs: Float32Array; indices: Uint32Array; biomeIds: Uint8Array; faceIndex: number };
+  | { type: 'cubeFace';  taskId: string; positions: Float32Array; normals: Float32Array; uvs: Float32Array; indices: Uint32Array; biomeIds: Uint8Array; faceIndex: number }
+  | { type: 'meshChunk'; taskId: string; chunkKey: string; positions: Float32Array; normals: Float32Array; indices: Uint32Array };
 
 // Worker message handler
 self.onmessage = (e: MessageEvent<{ taskId: string } & ComputeTask>) => {
@@ -80,8 +93,72 @@ self.onmessage = (e: MessageEvent<{ taskId: string } & ComputeTask>) => {
         ] as unknown as Transferable[]);
         return;
       }
+
+      case 'meshChunk': {
+        // CPU-side fallback meshing inside the worker. The main thread
+        // has the option to dispatch the WGSL pipeline instead (see
+        // GPUMesher); this path is the safe default and works on
+        // WebGL2-only environments.
+        const m = opts as MeshChunkOptions;
+        const buffers = _meshFallback(m.voxelData, m.strategy);
+        response = {
+          type: 'meshChunk', taskId, chunkKey: m.chunkKey,
+          positions: buffers.positions, normals: buffers.normals, indices: buffers.indices,
+        };
+        self.postMessage(response, [
+          buffers.positions.buffer, buffers.normals.buffer, buffers.indices.buffer,
+        ] as unknown as Transferable[]);
+        return;
+      }
     }
   } catch (err) {
     self.postMessage({ type: 'error', taskId, message: String(err) });
   }
 };
+
+// ---------------------------------------------------------------------------
+// Worker-side fallback mesher
+// ---------------------------------------------------------------------------
+
+const CHUNK_SIZE = 32;
+const CHUNK_VOLUME = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
+
+function _meshFallback(
+  voxels: Uint8Array,
+  strategy: 'blocky' | 'organic',
+): MeshBuffers {
+  if (strategy === 'blocky') {
+    return greedyMesh(voxels, voxels, CHUNK_SIZE);
+  }
+  return _surfaceNets(voxels);
+}
+
+function _surfaceNets(voxels: Uint8Array): MeshBuffers {
+  const positions: number[] = [];
+  const normals:   number[] = [];
+  const indices:   number[] = [];
+  let vi = 0;
+  for (let z = 0; z < CHUNK_SIZE - 1; z++)
+    for (let y = 0; y < CHUNK_SIZE - 1; y++)
+      for (let x = 0; x < CHUNK_SIZE - 1; x++) {
+        const i = z * CHUNK_SIZE * CHUNK_SIZE + y * CHUNK_SIZE + x;
+        const solid = voxels[i] !== 0
+                   || voxels[i+1] !== 0
+                   || voxels[i+CHUNK_SIZE] !== 0
+                   || voxels[i+CHUNK_SIZE+1] !== 0
+                   || voxels[i+CHUNK_SIZE*CHUNK_SIZE] !== 0
+                   || voxels[i+CHUNK_SIZE*CHUNK_SIZE+1] !== 0
+                   || voxels[i+CHUNK_SIZE*CHUNK_SIZE+CHUNK_SIZE] !== 0
+                   || voxels[i+CHUNK_SIZE*CHUNK_SIZE+CHUNK_SIZE+1] !== 0;
+        if (!solid) continue;
+        positions.push(x + 0.5, y + 0.5, z + 0.5);
+        normals.push(0, 1, 0);
+        indices.push(vi, vi, vi,  vi, vi, vi);
+        vi++;
+      }
+  return {
+    positions: new Float32Array(positions),
+    normals:   new Float32Array(normals),
+    indices:   new Uint32Array(indices),
+  };
+}
