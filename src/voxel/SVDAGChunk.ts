@@ -1,5 +1,5 @@
 /**
- * SVDAGChunk â€” a 32Ã—32Ã—32 voxel chunk stored as a Sparse Voxel DAG.
+ * SVDAGChunk — a 32×32×32 voxel chunk stored as a Sparse Voxel DAG.
  *
  * Coordinate space:
  *   - `cx, cy, cz` is the chunk's integer index (one per 32 voxels).
@@ -82,9 +82,13 @@ export class SVDAGChunk {
   }
 
   /**
-   * Iterate every non-empty voxel (sample for classification, etc.).
-   * Callback signature: `(x, y, z, voxelType) => boolean` â€” return `false`
-   * to abort iteration.
+   * Iterate every non-empty leaf. Callback signature:
+   *   `(x, y, z, voxelType) => boolean` — return `false` to abort.
+   *
+   * The callback is invoked once per *distinct leaf* (with the leaf's
+   * origin coordinate), not once per voxel — leaf volume is implicit in
+   * the DAG structure. This is the right granularity for classification,
+   * region sampling, and other type-distribution queries.
    */
   forEachSolid(cb: (x: number, y: number, z: number, voxelType: number) => boolean): void {
     _forEachSolid(this.root, 0, 0, 0, CHUNK_SIZE, cb);
@@ -172,16 +176,13 @@ function _forEachSolid(
   size: number,
   cb: (x: number, y: number, z: number, voxelType: number) => boolean,
 ): void {
+  // Emit exactly one sample per distinct leaf. The callback receives the
+  // leaf's local-space *origin* (not every voxel inside it); the leaf's
+  // volume is implicit in the DAG structure. Callers that need per-voxel
+  // iteration should walk with a unit step themselves.
   if (isLeaf(node)) {
     if (node.voxelType === 0) return;
-    const step = Math.max(1, Math.floor(size / 2));
-    for (let dz = 0; dz < size; dz += step) {
-      for (let dy = 0; dy < size; dy += step) {
-        for (let dx = 0; dx < size; dx += step) {
-          if (!cb(ox + dx, oy + dy, oz + dz, node.voxelType)) return;
-        }
-      }
-    }
+    cb(ox, oy, oz, node.voxelType);
     return;
   }
   const half = size / 2;

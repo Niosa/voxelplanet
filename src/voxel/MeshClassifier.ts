@@ -11,17 +11,17 @@
 import { SVDAGChunk } from './SVDAGChunk.ts';
 import { Biome } from '../globe/HeightmapGenerator.ts';
 
-/** Urban biome IDs (7 = Mountain is *not* urban; see comment). */
+/** Urban biome IDs. */
 const URBAN_BIOME_IDS: ReadonlySet<number> = new Set<number>([
   Biome.Village,  // 10
   Biome.Town,     // 11
   Biome.City,     // 12
 ]);
 
-/** Fraction of sampled voxels that must be urban to classify as `blocky`. */
+/** Fraction of leaves that must be urban to classify as `blocky`. */
 const BLOCKY_THRESHOLD = 0.6;
 
-/** Maximum number of surface samples to inspect. */
+/** Maximum number of distinct leaves to sample. */
 const MAX_SAMPLES = 256;
 
 export type MeshStrategy = 'blocky' | 'organic';
@@ -30,6 +30,8 @@ export function classifyChunk(chunk: SVDAGChunk): MeshStrategy {
   let urban = 0;
   let total = 0;
   chunk.forEachSolid((_x, _y, _z, voxelType) => {
+    // Sample by distinct leaf — `forEachSolid` visits at most one entry per
+    // structurally-distinct leaf, weighted by volume. We stop after MAX_SAMPLES.
     if (total >= MAX_SAMPLES) return false;
     total++;
     if (URBAN_BIOME_IDS.has(voxelType)) urban++;
