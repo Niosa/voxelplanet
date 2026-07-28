@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <meta name="description" content="VoxelPlanet — dual-scale planetary voxel sandbox. Explore a procedural world from orbit to ground level." />
+    <title>VoxelPlanet</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+      #render-canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        touch-action: none;
+      }
+      #loading-screen {
+        position: fixed;
+        inset: 0;
+        background: #05060f;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 24px;
+        font-family: system-ui, sans-serif;
+        color: #a0b4d0;
+        z-index: 100;
+        transition: opacity 0.6s ease;
+      }
+      #loading-screen.hidden { opacity: 0; pointer-events: none; }
+      #loading-title {
+        font-size: 2.4rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        color: #e8f0ff;
+      }
+      #loading-sub {
+        font-size: 0.9rem;
+        opacity: 0.7;
+      }
+      #loading-bar-track {
+        width: 280px;
+        height: 3px;
+        background: rgba(255,255,255,0.1);
+        border-radius: 2px;
+        overflow: hidden;
+      }
+      #loading-bar-fill {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, #3b7edc, #7c4dff);
+        border-radius: 2px;
+        transition: width 0.3s ease;
+      }
+      #webgpu-warning {
+        position: fixed;
+        top: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(220,120,0,0.9);
+        color: #fff;
+        font-family: system-ui, sans-serif;
+        font-size: 0.8rem;
+        padding: 8px 16px;
+        border-radius: 6px;
+        display: none;
+        z-index: 200;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="render-canvas"></canvas>
+
+    <div id="loading-screen">
+      <div id="loading-title">VOXELPLANET</div>
+      <div id="loading-sub">Initialising engine…</div>
+      <div id="loading-bar-track">
+        <div id="loading-bar-fill"></div>
+      </div>
+    </div>
+
+    <div id="webgpu-warning">
+      ⚠ WebGPU unavailable — falling back to WebGL 2
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
