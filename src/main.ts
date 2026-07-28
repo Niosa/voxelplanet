@@ -2,87 +2,101 @@
  * main.ts — VoxelPlanet entry point.
  *
  * Boot sequence:
- *   1. Verify crossOriginIsolated (warn if missing).
+ *   1. Create HUD (DOM, synchronous).
  *   2. Create WebGPU (or WebGL2 fallback) engine.
  *   3. Bootstrap Babylon scene with lighting + globe camera.
  *   4. Start GlobeRenderer (worker-driven, async face generation).
- *   5. Run the render loop.
+ *   5. Register globe meshes with ModeManager.
+ *   6. Run the render loop (FPS counter + mode updates).
  */
 
 import { createEngine } from './engine/WebGPUInit.ts';
 import { createScene }  from './engine/Scene.ts';
 import { GlobeRenderer } from './globe/GlobeRenderer.ts';
-
-// ── Loading screen helpers ────────────────────────────────────────────────
-function setLoadingText(text: string): void {
-  const el = document.getElementById('loading-sub');
-  if (el) el.textContent = text;
-}
-
-function setLoadingProgress(loaded: number, total: number): void {
-  const fill = document.getElementById('loading-bar-fill');
-  if (fill) fill.style.width = `${Math.round((loaded / total) * 100)}%`;
-}
-
-function hideLoadingScreen(): void {
-  const screen = document.getElementById('loading-screen');
-  if (screen) {
-    screen.classList.add('hidden');
-    setTimeout(() => screen.remove(), 700);
-  }
-}
+import { ModeManager }   from './mode/ModeManager.ts';
+import { HUD }           from './ui/HUD.ts';
+import type { Mesh }     from '@babylonjs/core';
 
 // ── Boot ──────────────────────────────────────────────────────────────────
 async function boot(): Promise<void> {
   const canvas = document.getElementById('render-canvas') as HTMLCanvasElement | null;
   if (!canvas) throw new Error('Missing #render-canvas element');
 
-  setLoadingText('Initialising GPU engine…');
+  // HUD is purely DOM — safe to init before engine
+  const hud = new HUD();
+  hud.setLoadingText('Initialising GPU engine…');
+
   const { engine, caps } = await createEngine(canvas);
 
-  // Show WebGPU fallback warning if needed
   if (!caps.isWebGPU) {
     const warning = document.getElementById('webgpu-warning');
     if (warning) warning.style.display = 'block';
   }
 
-  setLoadingText('Building scene…');
-  const { scene, floatingOrigin } = createScene(engine);
+  hud.setLoadingText('Building scene…');
+  const { scene, floatingOrigin, globeCamera } = createScene(engine);
 
-  setLoadingText('Generating planet…');
+  // Mode manager — wires HUD buttons to scene transitions
+  const modeManager = new ModeManager(scene, globeCamera, floatingOrigin, hud);
 
-  // Start globe generation (all 6 cube-sphere faces, off main thread)
+  hud.setLoadingText('Generating planet…');
+
+  const globeMeshes: Mesh[] = [];
+
   new GlobeRenderer({
     scene,
     engine,
     floatingOrigin,
+    onFaceMesh: (mesh) => {
+      globeMeshes.push(mesh);
+      modeManager.registerGlobeMeshes(globeMeshes);
+    },
     onProgress: (loaded, total) => {
-      setLoadingProgress(loaded, total);
-      setLoadingText(`Generating terrain… (${loaded}/${total} faces)`);
+      hud.setLoadingProgress(loaded, total);
+      hud.setLoadingText(`Generating terrain… (${loaded}/${total} faces)`);
     },
     onReady: () => {
-      setLoadingProgress(6, 6);
-      setLoadingText('Ready!');
-      setTimeout(hideLoadingScreen, 400);
+      hud.setLoadingProgress(6, 6);
+      hud.setLoadingText('Ready!');
+      setTimeout(() => {
+        hud.hideLoadingScreen();
+        hud.showGlobeMode();
+      }, 350);
     },
   });
 
-  // ── Render loop ────────────────────────────────────────────────────────
+  // ── Render loop ──────────────────────────────────────────────────────
+  let fpsAccum = 0;
+  let fpsFrames = 0;
+  let fpsDisplay = 0;
+  let lastFpsTime = performance.now();
+
   engine.runRenderLoop(() => {
     scene.render();
+
+    // FPS calculation (update every 500ms)
+    fpsFrames++;
+    const now = performance.now();
+    fpsAccum += now - lastFpsTime;
+    lastFpsTime = now;
+    if (fpsAccum >= 500) {
+      fpsDisplay = Math.round(fpsFrames / (fpsAccum / 1000));
+      fpsFrames = 0;
+      fpsAccum  = 0;
+    }
+    modeManager.updateFrame(fpsDisplay);
   });
 
-  // ── Resize handler ─────────────────────────────────────────────────────
   window.addEventListener('resize', () => engine.resize());
 
-  // ── Dev diagnostics ────────────────────────────────────────────────────
+  // Dev diagnostics
   if (import.meta.env.DEV) {
-    (window as unknown as Record<string, unknown>)['__voxelPlanetEngine'] = engine;
-    (window as unknown as Record<string, unknown>)['__voxelPlanetScene']  = scene;
-    (window as unknown as Record<string, unknown>)['__crossOriginIsolated'] = caps.crossOriginIsolated;
-    console.info('[VoxelPlanet] Dev globals: __voxelPlanetEngine, __voxelPlanetScene');
-    console.info(`[VoxelPlanet] crossOriginIsolated: ${caps.crossOriginIsolated}`);
-    console.info(`[VoxelPlanet] WebGPU: ${caps.isWebGPU}`);
+    (window as unknown as Record<string, unknown>)['__vp'] = { engine, scene, modeManager, hud };
+    console.info(
+      '[VoxelPlanet] Dev: window.__vp = { engine, scene, modeManager, hud }',
+      `\n  WebGPU: ${caps.isWebGPU}`,
+      `\n  crossOriginIsolated: ${caps.crossOriginIsolated}`,
+    );
   }
 }
 

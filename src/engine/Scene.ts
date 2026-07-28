@@ -27,17 +27,17 @@ export function createScene(engine: AbstractEngine): SceneContext {
   const floatingOrigin = new FloatingOrigin(scene);
 
   // --- Lighting ---
-  // Ambient fill — soft blue-tinted space ambient
+  // Ambient fill — raised to give ocean/dark biomes visible color at night side
   const ambient = new HemisphericLight('ambient', new Vector3(0, 1, 0), scene);
-  ambient.intensity = 0.15;
-  ambient.diffuse = new Color3(0.5, 0.6, 0.9);
-  ambient.groundColor = new Color3(0.05, 0.05, 0.08);
+  ambient.intensity = 0.5;
+  ambient.diffuse = new Color3(0.65, 0.72, 0.95);
+  ambient.groundColor = new Color3(0.12, 0.12, 0.18);
 
   // Primary sun — directional light
   const sun = new DirectionalLight('sun', new Vector3(-0.4, -1, -0.3), scene);
-  sun.intensity = 2.2;
-  sun.diffuse = new Color3(1.0, 0.97, 0.88);
-  sun.specular = new Color3(0.8, 0.8, 0.7);
+  sun.intensity = 2.8;
+  sun.diffuse = new Color3(1.0, 0.97, 0.90);
+  sun.specular = new Color3(0.6, 0.6, 0.5);
 
   // --- Globe camera (ArcRotate — orbit around planet centre) ---
   // Units: 1 unit = 1 km for the globe view.

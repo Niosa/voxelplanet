@@ -7,7 +7,11 @@
  *   - Updates the loading bar during generation.
  */
 
-import { type Scene, type AbstractEngine } from '@babylonjs/core';
+import {
+  type Scene,
+  type AbstractEngine,
+  type Mesh,
+} from '@babylonjs/core';
 import { BiomeMaterialAtlas, buildCubeFaceMesh } from './BiomeMaterialAtlas.ts';
 import type { FloatingOrigin } from '../engine/FloatingOrigin.ts';
 
@@ -19,6 +23,8 @@ export interface GlobeRendererOptions {
   scene: Scene;
   engine: AbstractEngine;
   floatingOrigin: FloatingOrigin;
+  /** Called each time a face mesh is built — used to collect meshes for ModeManager */
+  onFaceMesh?: (mesh: Mesh) => void;
   onProgress?: (loaded: number, total: number) => void;
   onReady?: () => void;
 }
@@ -28,12 +34,14 @@ export class GlobeRenderer {
   private _atlas: BiomeMaterialAtlas;
   private _orchestrator: Worker;
   private _facesLoaded = 0;
+  private _onFaceMesh:  ((mesh: Mesh) => void) | undefined;
   private _onProgress: ((l: number, t: number) => void) | undefined;
   private _onReady:    (() => void) | undefined;
 
   constructor(opts: GlobeRendererOptions) {
     this._scene      = opts.scene;
     this._atlas      = new BiomeMaterialAtlas(opts.scene);
+    this._onFaceMesh = opts.onFaceMesh;
     this._onProgress = opts.onProgress;
     this._onReady    = opts.onReady;
 
@@ -80,12 +88,13 @@ export class GlobeRenderer {
     const biomeIds    = msg['biomeIds']    as Uint8Array;
 
     // Build the mesh on the main thread (Babylon must be called from main thread)
-    buildCubeFaceMesh(
+    const mesh = buildCubeFaceMesh(
       this._scene,
       this._atlas.material,
       positions, normals, uvs, biomeIds, indices,
       faceIndex
     );
+    this._onFaceMesh?.(mesh);
 
     this._facesLoaded++;
     this._onProgress?.(this._facesLoaded, 6);

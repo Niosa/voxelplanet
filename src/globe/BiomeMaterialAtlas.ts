@@ -17,18 +17,18 @@ import {
  * keeps all 6 cube-sphere faces rendering with one draw call per face.
  */
 
-/** RGBA (0-255) color per biome index */
+/** RGBA (0-255) color per biome index — bright, vivid palette */
 const BIOME_COLORS: ReadonlyArray<[number, number, number]> = [
-  [  5,  40, 105],  // 0 Ocean          — deep blue
-  [ 25,  90, 180],  // 1 ShallowWater   — mid blue
-  [200, 185, 140],  // 2 Beach          — sandy tan
-  [100, 160,  60],  // 3 Grassland      — green
-  [ 55, 115,  40],  // 4 Forest         — dark green
-  [210, 175,  90],  // 5 Desert         — ochre
-  [175, 185, 160],  // 6 Tundra         — grey-green
-  [230, 235, 245],  // 7 Snow           — near-white
-  [130,  95,  70],  // 8 Mountain       — stone brown
-  [ 80,  55,  40],  // 9 Volcanic       — dark rock
+  [ 18,  94, 195],  // 0 Ocean          — rich ocean blue
+  [ 42, 148, 230],  // 1 ShallowWater   — bright shallow blue
+  [220, 198, 135],  // 2 Beach          — warm sandy tan
+  [ 85, 172,  55],  // 3 Grassland      — vivid green
+  [ 38, 108,  32],  // 4 Forest         — deep forest green
+  [228, 185,  70],  // 5 Desert         — golden sand
+  [155, 168, 148],  // 6 Tundra         — grey-green
+  [232, 238, 252],  // 7 Snow           — bright white-blue
+  [128,  98,  72],  // 8 Mountain       — warm stone
+  [ 72,  42,  30],  // 9 Volcanic       — dark reddish rock
 ];
 
 const ATLAS_WIDTH  = 256;
@@ -59,11 +59,12 @@ export class BiomeMaterialAtlas {
     this.texture.wrapU = Texture.CLAMP_ADDRESSMODE;
     this.texture.wrapV = Texture.CLAMP_ADDRESSMODE;
 
-    // Material that uses the atlas
     this.material = new StandardMaterial('biomeMat', scene);
     this.material.diffuseTexture = this.texture;
-    this.material.specularColor  = new Color3(0.05, 0.05, 0.05);
-    this.material.backFaceCulling = true;
+    this.material.specularColor  = new Color3(0.03, 0.03, 0.03);
+    // Disable back-face culling: the cube-sphere winding is inconsistent per face
+    // after sphere projection — safe to disable since we never see the sphere interior.
+    this.material.backFaceCulling = false;
   }
 
   /**
