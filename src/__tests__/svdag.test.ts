@@ -1,4 +1,4 @@
-﻿import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import {
   SVDAGChunk,
   CHUNK_SIZE,
@@ -9,7 +9,6 @@ import {
   parseChunkKey,
 } from '../voxel/ChunkManager';
 import {
-  SVDAGNode,
   EMPTY_NODE,
   makeLeaf,
   makeInternal,
@@ -83,14 +82,13 @@ describe('SVDAGNode.canonicalize', () => {
   });
 
   it('deduplicates two structurally-identical subtrees', () => {
-    // Build two equal internal nodes: one child of type 3, rest empty.
     const a = makeInternal([EMPTY_NODE, makeLeaf(3), EMPTY_NODE, EMPTY_NODE,
       EMPTY_NODE, EMPTY_NODE, EMPTY_NODE, EMPTY_NODE]);
     const b = makeInternal([EMPTY_NODE, makeLeaf(3), EMPTY_NODE, EMPTY_NODE,
       EMPTY_NODE, EMPTY_NODE, EMPTY_NODE, EMPTY_NODE]);
     const ca = canonicalize(a);
     const cb = canonicalize(b);
-    expect(ca).toBe(cb); // shared reference
+    expect(ca).toBe(cb);
   });
 
   it('keeps different subtrees distinct', () => {
@@ -135,15 +133,12 @@ describe('ChunkManager', () => {
   });
 
   it('evictLRU removes the oldest chunk when over budget', () => {
-    // Tiny budget so we evict on the first round.
-    const m = new ChunkManager(64); // 64 bytes — basically zero
+    const m = new ChunkManager(64);
     const c = m.getOrCreate(0, 0, 0);
     c.set(0, 0, 0, 1);
     c.set(1, 0, 0, 2);
     c.set(2, 0, 0, 3);
-    // Touch the LRU threshold by reading the value (forces nodeCount growth).
     for (let i = 0; i < 5; i++) c.get(i, 0, 0);
-    // Touch a *different* chunk to make the first one the LRU victim.
     const d = m.getOrCreate(0, 0, 1);
     d.set(0, 0, 0, 1);
     const evicted = m.evictLRU();
@@ -179,7 +174,6 @@ describe('LODTraversal.traverseSVDAG', () => {
   });
 
   it('descends more deeply when the camera is close', () => {
-    // Build a tree with 8 leaf children.
     const root = makeInternal([
       makeLeaf(1), makeLeaf(2), makeLeaf(3), makeLeaf(4),
       makeLeaf(5), makeLeaf(6), makeLeaf(7), makeLeaf(8),

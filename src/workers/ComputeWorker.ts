@@ -5,7 +5,7 @@
  *   - Heightmap generation (fBm simplex noise)
  *   - Biome assignment
  *   - Voronoi region computation
- *   - (Future) WASM greedy mesh / surface nets
+ *   - Voxel chunk meshing (JS fallback; GPU path is on the main thread)
  *
  * All imports must be pure JS — no DOM or Babylon.js.
  */
@@ -21,14 +21,10 @@ export type ComputeTask =
   | { type: 'voronoi';    opts: VoronoiOptions & { biomeIds: Uint8Array } }
   | { type: 'ca';         opts: CAOptions }
   | { type: 'cubeFace';   opts: GenerateFaceOptions }
-  // Step 7 — voxel chunk meshing. The worker marshals the SVDAG to a
-  // flat voxel array and runs the JS fallback of the chosen mesher.
-  // GPU dispatch is handled on the main thread (see GPUMesher).
   | { type: 'meshChunk';  opts: MeshChunkOptions };
 
 export interface MeshChunkOptions {
   chunkKey: string;
-  /** Flat voxel array, length = CHUNK_SIZE³. 0 = air. */
   voxelData: Uint8Array;
   strategy: 'blocky' | 'organic';
 }
@@ -40,18 +36,15 @@ export type ComputeResponse =
   | { type: 'cubeFace';  taskId: string; positions: Float32Array; normals: Float32Array; uvs: Float32Array; indices: Uint32Array; biomeIds: Uint8Array; faceIndex: number }
   | { type: 'meshChunk'; taskId: string; chunkKey: string; positions: Float32Array; normals: Float32Array; indices: Uint32Array };
 
-// Worker message handler
 self.onmessage = (e: MessageEvent<{ taskId: string } & ComputeTask>) => {
   const { taskId, type, opts } = e.data;
 
   try {
-    let response: ComputeResponse;
-
     switch (type) {
       case 'heightmap': {
         const result = generateHeightmap(opts as HeightmapOptions);
-        response = {
-          type: 'heightmap', taskId,
+        const response = {
+          type: 'heightmap' as const, taskId,
           heights: result.heights, biomeIds: result.biomeIds,
           moistures: result.moistures, temperatures: result.temperatures,
           resolution: result.resolution,
@@ -66,22 +59,22 @@ self.onmessage = (e: MessageEvent<{ taskId: string } & ComputeTask>) => {
       case 'voronoi': {
         const { biomeIds: bIds, ...voronoiOpts } = opts as VoronoiOptions & { biomeIds: Uint8Array };
         const result = generateVoronoiRegions({ ...voronoiOpts, biomeIds: bIds });
-        response = { type: 'voronoi', taskId, seeds: result.seeds, cellMap: result.cellMap };
+        const response = { type: 'voronoi' as const, taskId, seeds: result.seeds, cellMap: result.cellMap };
         self.postMessage(response, [result.cellMap.buffer] as unknown as Transferable[]);
         return;
       }
 
       case 'ca': {
         const result = runCellularAutomata(opts as CAOptions);
-        response = { type: 'ca', taskId, density: result.density, width: result.width, height: result.height };
+        const response = { type: 'ca' as const, taskId, density: result.density, width: result.width, height: result.height };
         self.postMessage(response, [result.density.buffer] as unknown as Transferable[]);
         return;
       }
 
       case 'cubeFace': {
         const result = generateCubeFace(opts as GenerateFaceOptions);
-        response = {
-          type: 'cubeFace', taskId,
+        const response = {
+          type: 'cubeFace' as const, taskId,
           positions: result.positions, normals: result.normals,
           uvs: result.uvs, indices: result.indices,
           biomeIds: result.biomeIds, faceIndex: result.faceIndex,
@@ -95,14 +88,10 @@ self.onmessage = (e: MessageEvent<{ taskId: string } & ComputeTask>) => {
       }
 
       case 'meshChunk': {
-        // CPU-side fallback meshing inside the worker. The main thread
-        // has the option to dispatch the WGSL pipeline instead (see
-        // GPUMesher); this path is the safe default and works on
-        // WebGL2-only environments.
         const m = opts as MeshChunkOptions;
         const buffers = _meshFallback(m.voxelData, m.strategy);
-        response = {
-          type: 'meshChunk', taskId, chunkKey: m.chunkKey,
+        const response = {
+          type: 'meshChunk' as const, taskId, chunkKey: m.chunkKey,
           positions: buffers.positions, normals: buffers.normals, indices: buffers.indices,
         };
         self.postMessage(response, [
@@ -121,7 +110,6 @@ self.onmessage = (e: MessageEvent<{ taskId: string } & ComputeTask>) => {
 // ---------------------------------------------------------------------------
 
 const CHUNK_SIZE = 32;
-const CHUNK_VOLUME = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
 
 function _meshFallback(
   voxels: Uint8Array,

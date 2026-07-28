@@ -1,4 +1,4 @@
-﻿/**
+/**
  * SVDAGChunk — a 32×32×32 voxel chunk stored as a Sparse Voxel DAG.
  *
  * Coordinate space:
@@ -9,8 +9,8 @@
  * remains valid.
  */
 
+import type { SVDAGNode } from './SVDAGNode.ts';
 import {
-  SVDAGNode,
   EMPTY_NODE,
   makeLeaf,
   makeInternal,
@@ -66,8 +66,7 @@ export class SVDAGChunk {
     if (x < 0 || y < 0 || z < 0 || x >= CHUNK_SIZE || y >= CHUNK_SIZE || z >= CHUNK_SIZE) {
       return;
     }
-    const before = this.root;
-    const after = _setNode(before, x, y, z, voxelType, CHUNK_SIZE);
+    const after = _setNode(this.root, x, y, z, voxelType, CHUNK_SIZE);
     this.root = canonicalize(after);
     this.touch();
   }
@@ -86,11 +85,6 @@ export class SVDAGChunk {
    * Iterate every non-empty voxel (sample for classification, etc.).
    * Callback signature: `(x, y, z, voxelType) => boolean` — return `false`
    * to abort iteration.
-   *
-   * For leaf nodes that cover more than one voxel we expand the leaf to
-   * its full volume so the caller sees a sample per voxel (not one per
-   * DAG node). This matters for `classifyChunk` which needs voxel-level
-   * biome distribution.
    */
   forEachSolid(cb: (x: number, y: number, z: number, voxelType: number) => boolean): void {
     _forEachSolid(this.root, 0, 0, 0, CHUNK_SIZE, cb);
@@ -103,7 +97,6 @@ export class SVDAGChunk {
 
 function _getNode(node: SVDAGNode, x: number, y: number, z: number, currentSize: number): number {
   if (isLeaf(node)) return node.voxelType;
-  // Descend into the correct octant.
   const childSize = currentSize / 2;
   const octant = _octantOf(x, y, z, childSize);
   const child = node.children[octant]!;
@@ -111,7 +104,6 @@ function _getNode(node: SVDAGNode, x: number, y: number, z: number, currentSize:
   return _getNode(child, x, y, z, childSize);
 }
 
-/** Compute octant for a coord at a given child size. */
 function _octantOf(x: number, y: number, z: number, childSize: number): number {
   const half = childSize / 2;
   let o = 0;
@@ -121,10 +113,6 @@ function _octantOf(x: number, y: number, z: number, childSize: number): number {
   return o;
 }
 
-/**
- * Walk into the DAG, building a new path with the new voxel at (x, y, z).
- * `currentSize` is the size of `node`'s volume.
- */
 function _setNode(
   node: SVDAGNode,
   x: number, y: number, z: number,
@@ -139,29 +127,24 @@ function _setNode(
   const octant = _octantOf(x, y, z, halfSize);
 
   if (isLeaf(node)) {
-    if (node.voxelType === voxelType) return node; // no change
-    // Splat the existing leaf into 8 children of the same type, then
-    // overwrite the target octant.
+    if (node.voxelType === voxelType) return node;
     const childLeaf = makeLeaf(node.voxelType);
     const children: SVDAGNode[] = new Array(8).fill(childLeaf) as SVDAGNode[];
     children[octant] = _setNode(childLeaf, x, y, z, voxelType, halfSize);
     return makeInternal(children);
   }
 
-  // Internal node: recurse into the target octant.
   const existing = node.children[octant]!;
   const existingNode: SVDAGNode =
     typeof existing === 'number' ? makeLeaf(existing) : existing;
   const updatedChild = _setNode(existingNode, x, y, z, voxelType, halfSize);
 
-  // Copy children array, replace the target octant.
   const newChildren: Array<SVDAGNode | number | undefined> = new Array(8);
   for (let i = 0; i < 8; i++) {
     newChildren[i] = node.children[i] ?? EMPTY_NODE;
   }
   newChildren[octant] = updatedChild;
 
-  // If all 8 children are the same non-empty leaf, collapse one level.
   const allSame = _allSameLeafOrEmpty(newChildren);
   if (allSame.kind === 'leaf') {
     return makeLeaf(allSame.voxelType);
@@ -191,9 +174,6 @@ function _forEachSolid(
 ): void {
   if (isLeaf(node)) {
     if (node.voxelType === 0) return;
-    // Expand the leaf to its full volume. We sample at the leaf's origin
-    // and at size-1 offset, plus every 4th voxel on each axis, so that
-    // very large leaves still contribute a representative sample count.
     const step = Math.max(1, Math.floor(size / 2));
     for (let dz = 0; dz < size; dz += step) {
       for (let dy = 0; dy < size; dy += step) {

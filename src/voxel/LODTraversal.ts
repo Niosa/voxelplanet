@@ -1,4 +1,4 @@
-﻿/**
+/**
  * LODTraversal — screen-space-error-driven walk of an SVDAG.
  *
  * Returns a flat list of leaf nodes whose error is below the supplied
@@ -7,7 +7,8 @@
  * The traversal is pure (no GPU), so it is safe to call from workers.
  */
 
-import { SVDAGNode, isLeaf } from './SVDAGNode.ts';
+import type { SVDAGNode } from './SVDAGNode.ts';
+import { isLeaf } from './SVDAGNode.ts';
 import { Vector3 } from '@babylonjs/core';
 
 /** World-unit node sizes per LOD bucket (largest first). */
@@ -32,11 +33,9 @@ export interface LODLeaf {
  *
  * @param root        The DAG root.
  * @param camera      Camera world position.
- * @param errorThreshold  Lower = higher quality. 0.001 ≈ pixels-per-radian
- *                        1/1000 — typical 1080p cull threshold.
+ * @param errorThreshold  Lower = higher quality.
  * @param origin      World-space origin of the root volume (default 0,0,0).
- * @param size        Edge length of the root volume in world units
- *                    (default 32 — chunk size in voxels × 1m).
+ * @param size        Edge length of the root volume in world units (default 32).
  */
 export function traverseSVDAG(
   root: SVDAGNode,
@@ -77,7 +76,6 @@ function _walk(
     return;
   }
 
-  // Descend.
   const half = size / 2;
   for (let i = 0; i < 8; i++) {
     if (!(node.childMask & (1 << i))) continue;
