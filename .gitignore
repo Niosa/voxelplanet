@@ -134,3 +134,5 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+/noa-master
+/textures_placeholder/bedrock-samples-main
