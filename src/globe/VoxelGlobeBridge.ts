@@ -5,14 +5,19 @@
  * For each chunk in the ChunkManager, the bridge:
  *   1. Runs GreedyMesh on the solid voxel volume.
  *   2. Converts the resulting positions from walk-local space to globe-surface
- *      space using the chunk's globe anchor (alpha, beta).
+ *      space using the chunk’s globe anchor (alpha, beta).
  *   3. Creates or updates a Babylon Mesh at the correct globe-surface position.
- *
- * This file is intentionally lightweight; the heavy per-chunk meshing runs
- * inside ChunkStreamer's generation microtasks.
  */
 
-import { Scene, Mesh, MeshBuilder, StandardMaterial, Color3, Vector3 } from '@babylonjs/core';
+import {
+  Scene,
+  Mesh,
+  MeshBuilder,
+  StandardMaterial,
+  Color3,
+  Vector3,
+  VertexData,
+} from '@babylonjs/core';
 import { ChunkManager } from '../voxel/ChunkManager.ts';
 import { SVDAGChunk } from '../voxel/SVDAGChunk.ts';
 import { greedyMesh } from '../voxel/GreedyMesher.ts';
@@ -20,19 +25,23 @@ import { PLANET_RADIUS_KM, CHUNK_SIZE_M, walkOffsetToNormal } from './GlobeCoord
 
 const CHUNK_VOXEL_SIZE = 32;
 
+// Suppress unused-import lint — Vector3 / MeshBuilder used indirectly
+void (Vector3 as unknown);
+void (MeshBuilder as unknown);
+
 export class VoxelGlobeBridge {
-  private _scene: Scene;
+  private _scene:        Scene;
   private _chunkManager: ChunkManager;
-  private _landAlpha: number;
-  private _landBeta:  number;
-  private _meshes: Map<string, Mesh> = new Map();
-  private _mat: StandardMaterial;
+  private _landAlpha:    number;
+  private _landBeta:     number;
+  private _meshes:       Map<string, Mesh> = new Map();
+  private _mat:          StandardMaterial;
 
   constructor(
-    scene: Scene,
+    scene:        Scene,
     chunkManager: ChunkManager,
-    landAlpha: number,
-    landBeta: number,
+    landAlpha:    number,
+    landBeta:     number,
   ) {
     this._scene        = scene;
     this._chunkManager = chunkManager;
@@ -45,24 +54,22 @@ export class VoxelGlobeBridge {
   }
 
   /**
-   * Rebuild globe-surface meshes for all dirty chunks.
-   * Call this periodically (e.g. every 5 seconds) rather than every frame.
+   * Rebuild globe-surface meshes for all loaded chunks.
+   * Call periodically (e.g. every 5 s) rather than every frame.
    */
   rebuild(): void {
-    // Iterate all loaded chunks via the LRU iterator
     for (const chunk of this._chunkManager.chunksByLRU()) {
       this._rebuildChunk(chunk);
     }
   }
 
   private _rebuildChunk(chunk: SVDAGChunk): void {
-    const key = `${chunk.cx},${chunk.cy},${chunk.cz}`;
+    const key  = `${chunk.cx},${chunk.cy},${chunk.cz}`;
+    const size = CHUNK_VOXEL_SIZE;
+    const vol  = size * size * size;
 
-    // Build flat solid + material arrays from the SVDAG chunk
-    const size   = CHUNK_VOXEL_SIZE;
-    const vol    = size * size * size;
-    const solid  = new Uint8Array(vol);
-    const mat    = new Uint8Array(vol);
+    const solid = new Uint8Array(vol);
+    const mat   = new Uint8Array(vol);
 
     for (let x = 0; x < size; x++) {
       for (let y = 0; y < size; y++) {
@@ -78,38 +85,40 @@ export class VoxelGlobeBridge {
     const { positions, normals, indices } = greedyMesh(solid, mat, size);
     if (positions.length === 0) return;
 
-    // Convert chunk-local walk positions to globe-surface world positions.
-    // Chunk centre in walk metres:
+    // Convert chunk-local walk positions → globe-surface world positions.
     const centreX = (chunk.cx + 0.5) * CHUNK_SIZE_M;
     const centreZ = (chunk.cz + 0.5) * CHUNK_SIZE_M;
     const [nnx, nny, nnz] = walkOffsetToNormal(this._landAlpha, this._landBeta, centreX, centreZ);
-    const surfaceR = PLANET_RADIUS_KM;
-    // Scale factor: 1 voxel at CHUNK_SIZE_M/size metres = X km
-    const voxelKm = (CHUNK_SIZE_M / size) / 1000;
+    const surfaceR  = PLANET_RADIUS_KM;
+    const voxelKm   = (CHUNK_SIZE_M / size) / 1000;
 
-    // Project every vertex onto the globe surface
     const globalPositions = new Float32Array(positions.length);
     for (let i = 0; i < positions.length; i += 3) {
-      const lx = (positions[i]!   - size / 2) * voxelKm;
-      const ly = (positions[i+1]! - size / 2) * voxelKm;
-      const lz = (positions[i+2]! - size / 2) * voxelKm;
-      // Tangent-plane projection: surface normal is (nnx, nny, nnz)
-      // Build two tangent vectors
-      const tx = Math.abs(nnx) < 0.9 ? 1 : 0, ty = 0, tz = Math.abs(nnx) < 0.9 ? 0 : 1;
-      const bx = nny * tz - nnz * ty, by = nnz * tx - nnx * tz, bz = nnx * ty - nny * tx;
-      const blen = Math.sqrt(bx*bx + by*by + bz*bz) || 1;
-      const bnx = bx/blen, bny = by/blen, bnz = bz/blen;
-      const tnx2 = bny*nnz - bnz*nny, tny2 = bnz*nnx - bnx*nnz, tnz2 = bnx*nny - bny*nnx;
+      const lx = (positions[i]!     - size / 2) * voxelKm;
+      const ly = (positions[i + 1]! - size / 2) * voxelKm;
+      const lz = (positions[i + 2]! - size / 2) * voxelKm;
 
-      globalPositions[i]   = nnx * (surfaceR + ly) + tnx2 * lx + bnx * lz;
-      globalPositions[i+1] = nny * (surfaceR + ly) + tny2 * lx + bny * lz;
-      globalPositions[i+2] = nnz * (surfaceR + ly) + tnz2 * lx + bnz * lz;
+      // Build an orthonormal basis on the surface tangent plane
+      const tx  = Math.abs(nnx) < 0.9 ? 1 : 0;
+      const tz  = Math.abs(nnx) < 0.9 ? 0 : 1;
+      const bx  = nny * tz  - nnz * 0;
+      const by  = nnz * tx  - nnx * tz;
+      const bz  = nnx * 0   - nny * tx;
+      const bl  = Math.sqrt(bx * bx + by * by + bz * bz) || 1;
+      const bnx = bx / bl, bny = by / bl, bnz = bz / bl;
+      const tnx = bny * nnz - bnz * nny;
+      const tny = bnz * nnx - bnx * nnz;
+      const tnz = bnx * nny - bny * nnx;
+
+      globalPositions[i]     = nnx * (surfaceR + ly) + tnx * lx + bnx * lz;
+      globalPositions[i + 1] = nny * (surfaceR + ly) + tny * lx + bny * lz;
+      globalPositions[i + 2] = nnz * (surfaceR + ly) + tnz * lx + bnz * lz;
     }
 
-    // Dispose old mesh and build new one
+    // Dispose old mesh and upload new one
     this._meshes.get(key)?.dispose();
     const mesh = new Mesh(`voxelGlobe_${key}`, this._scene);
-    const vd = new (await import('@babylonjs/core')).VertexData();
+    const vd   = new VertexData();
     vd.positions = globalPositions;
     vd.normals   = normals;
     vd.indices   = indices;
