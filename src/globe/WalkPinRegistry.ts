@@ -3,11 +3,6 @@
  * billboard pin meshes on the globe surface.
  *
  * Pins are persisted to localStorage so they survive page reloads.
- * Each pin records the camera angles at time of descent so the
- * player can return to the exact globe position.
- *
- * Billboard meshes are parented to the scene (not the floatingOrigin root)
- * so they stay at their absolute globe-space position.
  */
 
 import {
@@ -21,19 +16,18 @@ import {
 import { PLANET_RADIUS_KM, cameraToSurfaceNormal } from './GlobeCoordMapper.ts';
 
 export interface WalkPin {
-  id:       string;   // UUID
+  id:       string;
   label:    string;
-  alpha:    number;   // globe camera alpha at time of landing
-  beta:     number;   // globe camera beta
+  alpha:    number;
+  beta:     number;
   biomeId:  number;
-  /** Walk-space chunk key of the spawn chunk, e.g. "0,0,0" */
   spawnChunkKey: string;
-  createdAt: number; // Date.now()
+  createdAt: number;
 }
 
 const STORAGE_KEY = 'voxelplanet_pins_v1';
-const PIN_RADIUS  = 80;   // km above surface — visible from orbit
-const PIN_COLOR   = new Color3(1.0, 0.25, 0.1); // vivid orange-red
+const PIN_RADIUS  = 80;
+const PIN_COLOR   = new Color3(1.0, 0.25, 0.1);
 
 export class WalkPinRegistry {
   private _pins: Map<string, WalkPin> = new Map();
@@ -52,8 +46,6 @@ export class WalkPinRegistry {
     this._load();
   }
 
-  // ── Persistence ──────────────────────────────────────────────────────
-
   private _load(): void {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -71,8 +63,6 @@ export class WalkPinRegistry {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(this._pins.values())));
     } catch { /* storage quota — ignore */ }
   }
-
-  // ── Public API ───────────────────────────────────────────────────────
 
   addPin(pin: WalkPin): void {
     this._pins.set(pin.id, pin);
@@ -95,18 +85,14 @@ export class WalkPinRegistry {
     return this._pins.get(id);
   }
 
-  /** Show / hide all pin meshes (e.g. hide in walk mode) */
   setVisible(visible: boolean): void {
     for (const m of this._meshes.values()) m.isVisible = visible;
   }
-
-  // ── Billboard mesh ───────────────────────────────────────────────────
 
   private _createMesh(pin: WalkPin): void {
     const [nx, ny, nz] = cameraToSurfaceNormal(pin.alpha, pin.beta);
     const r = PLANET_RADIUS_KM + PIN_RADIUS;
 
-    // Sphere marker
     const sphere = MeshBuilder.CreateSphere(`pin_${pin.id}`, { diameter: 120, segments: 6 }, this._scene);
     sphere.position = new Vector3(nx * r, ny * r, nz * r);
     sphere.material = this._mat;
@@ -114,7 +100,6 @@ export class WalkPinRegistry {
     sphere.metadata = { pinId: pin.id };
     this._meshes.set(pin.id, sphere);
 
-    // Stalk connecting pin to surface
     const stalkH = PIN_RADIUS;
     const stalk = MeshBuilder.CreateCylinder(
       `pinStalk_${pin.id}`,
@@ -127,22 +112,16 @@ export class WalkPinRegistry {
       nz * (PLANET_RADIUS_KM + stalkH * 0.5)
     );
     stalk.position = mid;
-    // Align stalk to surface normal
-    const up = Vector3.Up();
+
+    // Align stalk along the surface normal using lookAt
     const normal = new Vector3(nx, ny, nz);
-    const axis = Vector3.Cross(up, normal);
-    if (axis.length() > 0.001) {
-      const angle = Math.acos(Math.max(-1, Math.min(1, Vector3.Dot(up, normal))));
-      stalk.rotationQuaternion = null;
-      stalk.rotation = Vector3.Zero(); // reset
-      // Use Babylon's rotation-from-axis if available, else euler approximation
-      stalk.lookAt(mid.add(normal));
-      stalk.rotation.x += Math.PI / 2;
-    }
+    const target = mid.add(normal);
+    stalk.lookAt(target);
+    stalk.rotation.x += Math.PI / 2;
+
     stalk.material = this._mat;
     stalk.isPickable = false;
     stalk.metadata = { pinStalk: true };
-    // Parent the stalk to the sphere for easy disposal
     stalk.setParent(sphere);
   }
 
@@ -152,7 +131,6 @@ export class WalkPinRegistry {
   }
 }
 
-/** Generate a simple collision-free UUID (no crypto dep). */
 export function newPinId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
