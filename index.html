@@ -5,272 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
     <meta name="description" content="VoxelPlanet — dual-scale planetary voxel sandbox. Explore a procedural world from orbit to ground level." />
     <title>VoxelPlanet</title>
-    <style>
-      /* ── Reset ─────────────────────────────────────────────────────── */
-      *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
-      html, body { width: 100%; height: 100%; overflow: hidden; background: #01020a; }
-
-      /* ── Canvas ─────────────────────────────────────────────────────── */
-      #render-canvas {
-        display: block; width: 100%; height: 100%;
-        touch-action: none; outline: none;
-      }
-
-      /* ── Design Tokens ──────────────────────────────────────────────── */
-      :root {
-        --accent:       #4a9eff;
-        --accent-dim:   rgba(74, 158, 255, 0.25);
-        --accent-glow:  rgba(74, 158, 255, 0.12);
-        --glass-bg:     rgba(4, 10, 32, 0.72);
-        --glass-border: rgba(74, 158, 255, 0.18);
-        --text-bright:  #d8eaff;
-        --text-mid:     rgba(180, 210, 255, 0.7);
-        --text-dim:     rgba(120, 160, 220, 0.45);
-        --font-ui:      'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
-        --font-mono:    'Consolas', 'Cascadia Code', 'Courier New', monospace;
-        --radius:       8px;
-        --blur:         14px;
-        --transition:   0.2s ease;
-      }
-
-      /* ── Shared HUD Helpers ─────────────────────────────────────────── */
-      .hud-root {
-        position: fixed; inset: 0;
-        pointer-events: none;
-        font-family: var(--font-ui);
-        z-index: 20;
-      }
-      .hud-root.hidden { display: none; }
-
-      .glass {
-        background: var(--glass-bg);
-        backdrop-filter: blur(var(--blur));
-        -webkit-backdrop-filter: blur(var(--blur));
-        border: 1px solid var(--glass-border);
-        border-radius: var(--radius);
-      }
-
-      .pill {
-        display: inline-flex; align-items: center; gap: 6px;
-        padding: 3px 10px;
-        border-radius: 20px;
-        font-size: 0.7rem;
-        font-weight: 600;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-      }
-      .pill-orbit  { background: rgba(40,100,200,0.35); color: #7ab8ff; border: 1px solid rgba(80,160,255,0.25); }
-      .pill-walk   { background: rgba(30,160,80,0.35);  color: #7ae8a0; border: 1px solid rgba(60,200,100,0.25); }
-      .pill-dot { width: 6px; height: 6px; border-radius: 50%; animation: blink 2s infinite; }
-      .pill-orbit .pill-dot  { background: #5aa8ff; }
-      .pill-walk  .pill-dot  { background: #50d870; }
-      @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
-
-      /* ── Globe HUD ──────────────────────────────────────────────────── */
-      #hud-globe-topbar {
-        position: absolute; top: 16px; left: 16px; right: 16px;
-        display: flex; align-items: center; gap: 12px;
-        pointer-events: none;
-      }
-      #hud-title {
-        padding: 8px 18px;
-        font-size: 1.05rem; font-weight: 700;
-        letter-spacing: 0.22em; text-transform: uppercase;
-        color: var(--text-bright);
-      }
-
-      #hud-fps {
-        position: absolute; top: 16px; right: 16px;
-        padding: 6px 14px;
-        font-family: var(--font-mono);
-        font-size: 0.78rem; color: var(--text-mid);
-        letter-spacing: 0.08em;
-      }
-
-      /* Altitude meter */
-      #hud-alt-panel {
-        position: absolute; bottom: 110px; left: 50%;
-        transform: translateX(-50%);
-        padding: 8px 22px;
-        display: flex; flex-direction: column; align-items: center; gap: 2px;
-      }
-      #hud-alt-label { font-size: 0.65rem; letter-spacing: 0.15em; text-transform: uppercase; color: var(--text-dim); }
-      #hud-alt-value {
-        font-family: var(--font-mono);
-        font-size: 1.1rem; font-weight: 600; color: var(--text-bright);
-        letter-spacing: 0.05em;
-      }
-
-      /* Land button */
-      #btn-land-wrap {
-        position: absolute; bottom: 28px; left: 50%;
-        transform: translateX(-50%);
-        display: flex; flex-direction: column; align-items: center; gap: 10px;
-        pointer-events: auto;
-      }
-      #btn-land {
-        padding: 13px 42px;
-        background: linear-gradient(135deg, rgba(30,80,200,0.85), rgba(60,20,180,0.85));
-        border: 1px solid rgba(100,168,255,0.55);
-        border-radius: 6px;
-        color: var(--text-bright);
-        font-family: var(--font-ui);
-        font-size: 0.92rem; font-weight: 600;
-        letter-spacing: 0.18em; text-transform: uppercase;
-        cursor: pointer;
-        transition: all var(--transition);
-        box-shadow: 0 0 24px rgba(60,120,255,0.18), inset 0 1px 0 rgba(255,255,255,0.07);
-        animation: land-pulse 2.8s ease-in-out infinite;
-      }
-      #btn-land:hover {
-        background: linear-gradient(135deg, rgba(50,110,240,0.95), rgba(90,40,220,0.95));
-        border-color: rgba(120,190,255,0.8);
-        box-shadow: 0 0 36px rgba(80,150,255,0.35), inset 0 1px 0 rgba(255,255,255,0.1);
-        transform: translateY(-1px);
-        animation: none;
-      }
-      #btn-land:active { transform: translateY(1px); }
-      @keyframes land-pulse {
-        0%,100% { box-shadow: 0 0 18px rgba(60,120,255,0.12), inset 0 1px 0 rgba(255,255,255,0.06); }
-        50%      { box-shadow: 0 0 36px rgba(80,160,255,0.28), inset 0 1px 0 rgba(255,255,255,0.08); }
-      }
-
-      #hud-hint {
-        font-size: 0.7rem; color: var(--text-dim);
-        letter-spacing: 0.1em;
-      }
-
-      /* ── Walk HUD ───────────────────────────────────────────────────── */
-      /* Crosshair */
-      #crosshair {
-        position: fixed; top: 50%; left: 50%;
-        transform: translate(-50%, -50%);
-        width: 22px; height: 22px;
-        pointer-events: none; z-index: 30;
-        opacity: 0.85;
-      }
-      #crosshair::before, #crosshair::after {
-        content: ''; position: absolute;
-        background: rgba(200, 230, 255, 0.9);
-      }
-      #crosshair::before { width: 2px; height: 100%; left: 50%; transform: translateX(-50%); }
-      #crosshair::after  { height: 2px; width: 100%; top: 50%;  transform: translateY(-50%); }
-      /* Gap in center */
-      #crosshair::before, #crosshair::after { clip-path: inset(calc(50% - 4px) 0 calc(50% - 4px)); }
-
-      /* Walk top bar */
-      #hud-walk-topbar {
-        position: absolute; top: 16px; left: 16px; right: 16px;
-        display: flex; align-items: center; justify-content: space-between;
-        pointer-events: none;
-      }
-      #hud-walk-info {
-        padding: 8px 16px;
-        display: flex; align-items: center; gap: 12px;
-      }
-      #hud-biome-label {
-        font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase;
-        color: var(--text-mid); font-family: var(--font-mono);
-      }
-      #btn-exit-orbit {
-        padding: 8px 20px;
-        pointer-events: auto;
-        background: rgba(30,60,120,0.7);
-        border: 1px solid rgba(80,140,255,0.35);
-        border-radius: 6px;
-        color: var(--text-mid);
-        font-family: var(--font-ui); font-size: 0.78rem;
-        font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;
-        cursor: pointer;
-        transition: all var(--transition);
-      }
-      #btn-exit-orbit:hover {
-        background: rgba(50,90,180,0.85);
-        border-color: rgba(120,180,255,0.6);
-        color: var(--text-bright);
-      }
-
-      /* Walk bottom bar */
-      #hud-walk-bottom {
-        position: absolute; bottom: 22px; left: 50%;
-        transform: translateX(-50%);
-        padding: 8px 22px;
-        display: flex; flex-direction: column; align-items: center; gap: 5px;
-      }
-      #hud-walk-coords {
-        font-family: var(--font-mono); font-size: 0.78rem;
-        color: var(--text-mid); letter-spacing: 0.05em;
-      }
-      #hud-walk-hint {
-        font-size: 0.68rem; color: var(--text-dim);
-        letter-spacing: 0.08em;
-      }
-
-      /* Click-to-lock overlay */
-      #hud-lock-prompt {
-        position: fixed; inset: 0;
-        display: flex; flex-direction: column;
-        align-items: center; justify-content: center;
-        gap: 12px; pointer-events: none;
-        background: rgba(0,0,0,0.45);
-        z-index: 25;
-        transition: opacity 0.3s ease;
-      }
-      #hud-lock-prompt.hidden { opacity: 0; pointer-events: none; }
-      #hud-lock-prompt-text {
-        font-family: var(--font-ui); font-size: 1rem;
-        color: var(--text-bright); letter-spacing: 0.15em;
-        text-transform: uppercase;
-      }
-      #hud-lock-prompt-sub { font-size: 0.75rem; color: var(--text-mid); }
-
-      /* ── Transition Overlay ─────────────────────────────────────────── */
-      #hud-transition {
-        position: fixed; inset: 0;
-        background: #000;
-        opacity: 0; pointer-events: none;
-        z-index: 50;
-        transition: opacity 0.5s ease;
-      }
-      #hud-transition.fade-in  { opacity: 1; pointer-events: auto; }
-      #hud-transition.fade-out { opacity: 0; pointer-events: none; }
-
-      /* ── Loading Screen ─────────────────────────────────────────────── */
-      #loading-screen {
-        position: fixed; inset: 0;
-        background: #01020a;
-        display: flex; flex-direction: column;
-        align-items: center; justify-content: center; gap: 22px;
-        font-family: var(--font-ui); color: #8aaecc; z-index: 100;
-        transition: opacity 0.7s ease;
-      }
-      #loading-screen.hidden { opacity: 0; pointer-events: none; }
-      #loading-title {
-        font-size: 2.2rem; font-weight: 700;
-        letter-spacing: 0.25em; text-transform: uppercase;
-        color: var(--text-bright);
-        text-shadow: 0 0 40px rgba(80,160,255,0.4);
-      }
-      #loading-sub { font-size: 0.82rem; opacity: 0.65; letter-spacing: 0.06em; }
-      #loading-bar-track {
-        width: 260px; height: 2px;
-        background: rgba(255,255,255,0.08); border-radius: 2px; overflow: hidden;
-      }
-      #loading-bar-fill {
-        height: 100%; width: 0%;
-        background: linear-gradient(90deg, #3b7edc, #7c4dff);
-        border-radius: 2px; transition: width 0.3s ease;
-      }
-
-      /* ── WebGPU Warning ─────────────────────────────────────────────── */
-      #webgpu-warning {
-        position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
-        background: rgba(200,100,0,0.88); color: #fff;
-        font-family: var(--font-ui); font-size: 0.78rem;
-        padding: 7px 16px; border-radius: 6px;
-        display: none; z-index: 200;
-      }
-    </style>
+    <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
     <canvas id="render-canvas" tabindex="0"></canvas>
@@ -282,7 +17,7 @@
       <div id="loading-bar-track"><div id="loading-bar-fill"></div></div>
     </div>
 
-    <!-- ── Globe Mode HUD ──────────────────────────────────────────── -->
+    <!-- ── Globe Mode HUD ────────────────────────────────────── -->
     <div id="hud-globe" class="hud-root hidden">
       <!-- Title bar -->
       <div id="hud-globe-topbar">
@@ -297,14 +32,22 @@
         <span id="hud-alt-value">—</span>
       </div>
 
+      <!-- Pin list panel (left side) -->
+      <div class="glass" id="hud-pin-panel">
+        <div class="pin-panel-header">
+          <span class="pin-panel-title">📍 Saved Locations</span>
+        </div>
+        <ul id="hud-pin-list"><li class="pin-empty">No pins yet</li></ul>
+      </div>
+
       <!-- Land button -->
       <div id="btn-land-wrap">
         <button id="btn-land">🌍 Land on Surface</button>
-        <span id="hud-hint">Drag · Orbit &nbsp;|&nbsp; Scroll · Zoom</span>
+        <span id="hud-hint">Drag · Orbit &nbsp;|&nbsp; Scroll · Zoom &nbsp;|&nbsp; Click pin to return</span>
       </div>
     </div>
 
-    <!-- ── Walk Mode HUD ───────────────────────────────────────────── -->
+    <!-- ── Walk Mode HUD ─────────────────────────────────────── -->
     <div id="hud-walk" class="hud-root hidden">
       <!-- Crosshair -->
       <div id="crosshair"></div>
@@ -321,13 +64,24 @@
       <!-- Bottom bar -->
       <div class="glass" id="hud-walk-bottom">
         <span id="hud-walk-coords">x: 0  y: 0  z: 0</span>
-        <span id="hud-walk-hint">WASD · Move &nbsp;|&nbsp; Mouse · Look &nbsp;|&nbsp; ESC · Exit</span>
+        <span id="hud-walk-hint">WASD · Move &nbsp;|&nbsp; Mouse · Look &nbsp;|&nbsp; M · Return to Globe &nbsp;|&nbsp; ESC · Exit</span>
       </div>
 
       <!-- Click-to-lock -->
       <div id="hud-lock-prompt">
         <span id="hud-lock-prompt-text">Click to capture mouse</span>
         <span id="hud-lock-prompt-sub">ESC to release</span>
+      </div>
+    </div>
+
+    <!-- ── Pin Return Modal ───────────────────────────────────────── -->
+    <div id="hud-pin-modal" class="hud-pin-modal hidden">
+      <div class="glass pin-modal-card">
+        <button id="hud-pin-modal-close" class="pin-modal-close">×</button>
+        <div class="pin-modal-icon">📍</div>
+        <div id="hud-pin-modal-name" class="pin-modal-name">Location</div>
+        <div id="hud-pin-modal-biome" class="pin-modal-biome">Biome</div>
+        <button id="hud-pin-modal-return" class="pin-modal-return-btn">↩ Return to this location</button>
       </div>
     </div>
 
