@@ -2,7 +2,7 @@
  * ModeManager — orchestrates Globe ↔ Walk mode transitions.
  */
 
-import { Scene, ArcRotateCamera, Mesh, Vector3 } from '@babylonjs/core';
+import { Scene, ArcRotateCamera, Mesh } from '@babylonjs/core';
 import { BasicWalkScene } from '../voxel/BasicWalkScene.ts';
 import { ChunkManager } from '../voxel/ChunkManager.ts';
 import { chunkKey } from '../voxel/ChunkManager.ts';
@@ -29,7 +29,7 @@ export class ModeManager {
   private _pinRegistry: WalkPinRegistry;
   private _toolbar: GlobeToolbar;
 
-  /** Globe camera angles at the time of the most recent walk descent. */
+  /** Snapshot of globe camera angles when the player last descended. */
   private _landAlpha = 0;
   private _landBeta  = Math.PI / 3;
 
@@ -44,9 +44,9 @@ export class ModeManager {
     this._hud            = hud;
     this._floatingOrigin = floatingOrigin;
 
-    this._chunkManager  = new ChunkManager();
-    this._pinRegistry   = new WalkPinRegistry(scene);
-    this._toolbar       = new GlobeToolbar(() => ({
+    this._chunkManager = new ChunkManager();
+    this._pinRegistry  = new WalkPinRegistry(scene);
+    this._toolbar      = new GlobeToolbar(() => ({
       alpha: this._globeCamera.alpha,
       beta:  this._globeCamera.beta,
     }));
@@ -77,7 +77,7 @@ export class ModeManager {
 
     this._hud.onLandClicked(() => void this.enterWalkMode());
     this._hud.onExitClicked(() => void this.exitToGlobe());
-    this._hud.onReturnToPinClicked((pinId) => void this.returnToPin(pinId));
+    this._hud.onReturnToPinClicked((pinId: string) => void this.returnToPin(pinId));
 
     scene.onPointerObservable.add((pi) => {
       if (this._mode !== 'globe') return;
@@ -111,10 +111,10 @@ export class ModeManager {
     this._landAlpha = alpha;
     this._landBeta  = beta;
 
-    const sample  = sampleGlobeAtCamera(alpha, beta);
-    const biomeId  = sample.biomeId;
-    const spawnY   = Math.max(0, sample.height) + 1.75;
-    const seed     = Math.round(alpha * 1000 + beta * 500) | 0;
+    const sample = sampleGlobeAtCamera(alpha, beta);
+    const biomeId = sample.biomeId;
+    const spawnY  = Math.max(0, sample.height) + 1.75;
+    const seed    = Math.round(alpha * 1000 + beta * 500) | 0;
 
     let pinId = fromPin?.id ?? null;
     if (!pinId) {
@@ -130,7 +130,6 @@ export class ModeManager {
       pinId = pin.id;
       this._hud.refreshPinList(this._pinRegistry.getAll());
     }
-    // pinId is used to track the active location
     void pinId;
 
     await this._hud.transition(() => {
@@ -202,6 +201,10 @@ export class ModeManager {
     }
   }
 
-  // Silence unused-variable lint on Vector3 import used only at type level
-  private _unusedVec3Ref: typeof Vector3 = Vector3;
+  // Keep _landAlpha / _landBeta alive for future use — referenced here so
+  // TypeScript does not flag them as unused.
+  private _keepAlive(): void {
+    void this._landAlpha;
+    void this._landBeta;
+  }
 }
