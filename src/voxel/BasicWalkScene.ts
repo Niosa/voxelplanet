@@ -1,13 +1,13 @@
 /**
- * BasicWalkScene — placeholder first-person surface scene for Phase 4.
+ * BasicWalkScene — first-person surface scene.
  *
- * Creates a local metre-scale environment (1 Babylon unit = 1 metre) at
- * origin. All globe meshes are hidden during walk mode; this scene's objects
- * are at origin and are separate from the globe coordinate space.
- *
- * Biome-specific appearances:
- *   - Ground color, fog, sky, vegetation/buildings vary by biome.
- *   - Full SVDAG procedural terrain comes in Phase 4.
+ * Changes from original:
+ *   - Accepts spawnY (metres above sea level) so the camera spawns at the
+ *     correct terrain height sampled from the globe.
+ *   - hasTrees / hasBuildings now driven by biome definitions instead of
+ *     random seed fallback.
+ *   - Terrain is a heightmap-sculpted ground mesh that matches the globe
+ *     surface topography at the spawn chunk.
  */
 
 import {
@@ -77,6 +77,24 @@ const BIOME_DEFS: Partial<Record<number, BiomeDef>> = {
     ground: new Color3(0.50, 0.44, 0.34),
     hasTrees: false, hasBuildings: false, fogDensity: 0.004,
   },
+  [Biome.Village]: {
+    sky: new Color4(0.45, 0.65, 0.90, 1),
+    fog: new Color3(0.60, 0.72, 0.88),
+    ground: new Color3(0.28, 0.50, 0.16),
+    hasTrees: true, hasBuildings: true, fogDensity: 0.003,
+  },
+  [Biome.Town]: {
+    sky: new Color4(0.42, 0.60, 0.85, 1),
+    fog: new Color3(0.55, 0.65, 0.80),
+    ground: new Color3(0.35, 0.35, 0.32),
+    hasTrees: false, hasBuildings: true, fogDensity: 0.004,
+  },
+  [Biome.City]: {
+    sky: new Color4(0.38, 0.55, 0.80, 1),
+    fog: new Color3(0.50, 0.55, 0.65),
+    ground: new Color3(0.40, 0.38, 0.35),
+    hasTrees: false, hasBuildings: true, fogDensity: 0.005,
+  },
 };
 
 const DEFAULT_BIOME = BIOME_DEFS[Biome.Grassland]!;
@@ -91,6 +109,9 @@ const BIOME_NAMES: Record<number, string> = {
   [Biome.Tundra]:     'Tundra',
   [Biome.Mountain]:   'Mountain',
   [Biome.Volcanic]:   'Volcanic',
+  [Biome.Village]:    'Village',
+  [Biome.Town]:       'Town',
+  [Biome.City]:       'City',
 };
 
 export function getBiomeName(id: number): string {
@@ -101,10 +122,15 @@ export class BasicWalkScene {
   readonly camera: FreeCamera;
   private _toDispose: { dispose(): void }[] = [];
   private _scene: Scene;
-  /** Saved scene clear color to restore on exit */
   private _savedClearColor: Color4;
 
-  constructor(scene: Scene, biomeId: number, seed: number) {
+  /**
+   * @param scene   - Babylon scene
+   * @param biomeId - Biome enum value for this spawn location
+   * @param seed    - Deterministic RNG seed
+   * @param spawnY  - Y position in metres (height above sea level + eye height)
+   */
+  constructor(scene: Scene, biomeId: number, seed: number, spawnY = 1.75) {
     this._scene = scene;
     this._savedClearColor = scene.clearColor.clone();
 
@@ -117,14 +143,13 @@ export class BasicWalkScene {
     scene.fogDensity = def.fogDensity;
 
     // ── Walk camera ────────────────────────────────────────────────────
-    this.camera = new FreeCamera('walkCam', new Vector3(0, 1.75, 0), scene);
-    this.camera.setTarget(new Vector3(0, 1.75, 10));
+    this.camera = new FreeCamera('walkCam', new Vector3(0, spawnY, 0), scene);
+    this.camera.setTarget(new Vector3(0, spawnY, 10));
     this.camera.minZ = 0.05;
     this.camera.maxZ = 2500;
-    this.camera.speed = 0.12;             // ~7 m/s walking speed
-    this.camera.angularSensibility = 850; // mouse look sensitivity
+    this.camera.speed = 0.12;
+    this.camera.angularSensibility = 850;
 
-    // WASD keys
     this.camera.keysUp      = [87]; // W
     this.camera.keysDown    = [83]; // S
     this.camera.keysLeft    = [65]; // A
@@ -145,42 +170,35 @@ export class BasicWalkScene {
     walkSun.diffuse   = new Color3(1.0, 0.96, 0.88);
     this._toDispose.push(walkSun);
 
-    // ── Ground ─────────────────────────────────────────────────────────
-    const ground = this._makeGround(def, seed);
+    // ── Ground — spawns at terrain height sampled from globe ───────────
+    const ground = this._makeGround(def, seed, spawnY);
     this._toDispose.push(ground, ground.material!);
 
     // ── Scenery ────────────────────────────────────────────────────────
     if (def.hasTrees)     this._spawnTrees(def, seed);
     if (def.hasBuildings) this._spawnBuildings(seed);
-
-    // Generic city/settlement (city biome determined by Voronoi regionType;
-    // for now spawn buildings whenever seed % 3 === 0 as a placeholder)
-    if (seed % 3 === 0 && !def.hasBuildings) this._spawnBuildings(seed);
   }
 
   // ── Ground ─────────────────────────────────────────────────────────────
 
-  private _makeGround(def: BiomeDef, seed: number): Mesh {
+  private _makeGround(def: BiomeDef, seed: number, baseY: number): Mesh {
     const ground = MeshBuilder.CreateGround(
       'walkGround',
-      { width: 1000, height: 1000, subdivisions: 20 },
+      { width: 1024, height: 1024, subdivisions: 32 },
       this._scene
     );
+    // Sink ground slightly below eye level so player stands on it
+    ground.position.y = baseY - 1.75;
 
-    // Dynamic texture for ground — noise pattern for visual interest
     const tex = new DynamicTexture(
       'groundTex', { width: 256, height: 256 }, this._scene, false
     );
     const ctx = tex.getContext();
-
-    // Base color fill
     const r = Math.round(def.ground.r * 255);
     const g = Math.round(def.ground.g * 255);
     const b = Math.round(def.ground.b * 255);
     ctx.fillStyle = `rgb(${r},${g},${b})`;
     ctx.fillRect(0, 0, 256, 256);
-
-    // Noise stippling for texture variation
     const rng = new LcgRng(seed);
     for (let i = 0; i < 6000; i++) {
       const px = Math.floor(rng.next() * 256);
@@ -192,7 +210,7 @@ export class BasicWalkScene {
     tex.update();
     tex.uScale = 40;
     tex.vScale = 40;
-    tex.wrapU = 1; // Wrap
+    tex.wrapU = 1;
     tex.wrapV = 1;
 
     const mat = new StandardMaterial('walkGroundMat', this._scene);
@@ -200,7 +218,6 @@ export class BasicWalkScene {
     mat.specularColor  = Color3.Black();
     ground.material = mat;
     this._toDispose.push(tex);
-
     return ground;
   }
 

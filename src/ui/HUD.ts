@@ -1,7 +1,14 @@
 /**
  * HUD — manages all DOM overlay elements.
  * The HUD is pure DOM; it never touches Babylon.js directly.
+ *
+ * Additions:
+ *   - onReturnToPinClicked() callback for pin list items.
+ *   - showPinReturnPrompt() — modal to return to a saved pin.
+ *   - refreshPinList() — rebuilds the pin list in the globe-mode HUD.
  */
+
+import type { WalkPin } from '../globe/WalkPinRegistry.ts';
 
 const BIOME_NAMES: Record<number, string> = {
   0: 'Ocean',
@@ -14,6 +21,9 @@ const BIOME_NAMES: Record<number, string> = {
   7: 'Snow',
   8: 'Mountain',
   9: 'Volcanic',
+  10: 'Village',
+  11: 'Town',
+  12: 'City',
 };
 
 export class HUD {
@@ -25,6 +35,10 @@ export class HUD {
   private _coordsEl:    HTMLElement;
   private _biomeEl:     HTMLElement;
   private _lockPrompt:  HTMLElement;
+  private _pinList:     HTMLElement;
+  private _pinModal:    HTMLElement;
+
+  private _returnToPinCb: ((pinId: string) => void) | null = null;
 
   constructor() {
     this._globeRoot  = this._get('hud-globe');
@@ -35,9 +49,25 @@ export class HUD {
     this._coordsEl   = this._get('hud-walk-coords');
     this._biomeEl    = this._get('hud-biome-label');
     this._lockPrompt = this._get('hud-lock-prompt');
+    this._pinList    = this._get('hud-pin-list');
+    this._pinModal   = this._get('hud-pin-modal');
 
-    // Start hidden; shown after loading completes
     this._lockPrompt.classList.add('hidden');
+    this._pinModal.classList.add('hidden');
+
+    // Pin modal close button
+    const closeBtn = document.getElementById('hud-pin-modal-close');
+    if (closeBtn) closeBtn.addEventListener('click', () => this._pinModal.classList.add('hidden'));
+
+    // Pin modal return button
+    const returnBtn = document.getElementById('hud-pin-modal-return');
+    if (returnBtn) {
+      returnBtn.addEventListener('click', () => {
+        const pinId = returnBtn.dataset['pinId'] ?? '';
+        if (pinId && this._returnToPinCb) this._returnToPinCb(pinId);
+        this._pinModal.classList.add('hidden');
+      });
+    }
   }
 
   private _get(id: string): HTMLElement {
@@ -54,6 +84,10 @@ export class HUD {
 
   onExitClicked(cb: () => void): void {
     this._get('btn-exit-orbit').addEventListener('click', cb);
+  }
+
+  onReturnToPinClicked(cb: (pinId: string) => void): void {
+    this._returnToPinCb = cb;
   }
 
   // ── Mode Switching ─────────────────────────────────────────────────────
@@ -74,6 +108,39 @@ export class HUD {
   showLockPrompt(visible: boolean): void {
     if (visible) this._lockPrompt.classList.remove('hidden');
     else         this._lockPrompt.classList.add('hidden');
+  }
+
+  // ── Pin UI ─────────────────────────────────────────────────────────────
+
+  refreshPinList(pins: WalkPin[]): void {
+    this._pinList.innerHTML = '';
+    if (pins.length === 0) {
+      this._pinList.innerHTML = '<li class="pin-empty">No pins yet</li>';
+      return;
+    }
+    for (const pin of pins) {
+      const li = document.createElement('li');
+      li.className = 'pin-item';
+      li.innerHTML = `
+        <span class="pin-label">${escHtml(pin.label)}</span>
+        <span class="pin-biome">${BIOME_NAMES[pin.biomeId] ?? ''}</span>
+        <button class="pin-return-btn" data-pin-id="${escHtml(pin.id)}">↩ Return</button>
+      `;
+      li.querySelector('.pin-return-btn')?.addEventListener('click', () => {
+        if (this._returnToPinCb) this._returnToPinCb(pin.id);
+      });
+      this._pinList.appendChild(li);
+    }
+  }
+
+  showPinReturnPrompt(pin: WalkPin): void {
+    const nameEl   = document.getElementById('hud-pin-modal-name');
+    const biomeEl  = document.getElementById('hud-pin-modal-biome');
+    const returnBtn = document.getElementById('hud-pin-modal-return');
+    if (nameEl)   nameEl.textContent  = pin.label;
+    if (biomeEl)  biomeEl.textContent = BIOME_NAMES[pin.biomeId] ?? '';
+    if (returnBtn) returnBtn.dataset['pinId'] = pin.id;
+    this._pinModal.classList.remove('hidden');
   }
 
   // ── Data Updates ───────────────────────────────────────────────────────
@@ -97,10 +164,6 @@ export class HUD {
 
   // ── Transition ─────────────────────────────────────────────────────────
 
-  /**
-   * Fades to black, calls onMidpoint (to switch scene), then fades back in.
-   * Total duration: ~1 second.
-   */
   transition(onMidpoint: () => void): Promise<void> {
     return new Promise(resolve => {
       this._transition.classList.add('fade-in');
@@ -108,8 +171,6 @@ export class HUD {
 
       setTimeout(() => {
         onMidpoint();
-
-        // Small delay to let the scene render one frame before fading in
         requestAnimationFrame(() => {
           this._transition.classList.remove('fade-in');
           this._transition.classList.add('fade-out');
@@ -138,4 +199,8 @@ export class HUD {
       setTimeout(() => screen.remove(), 750);
     }
   }
+}
+
+function escHtml(s: string): string {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
