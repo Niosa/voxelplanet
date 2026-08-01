@@ -29,10 +29,6 @@ export class ModeManager {
   private _pinRegistry: WalkPinRegistry;
   private _toolbar: GlobeToolbar;
 
-  /** Snapshot of globe camera angles when the player last descended. */
-  private _landAlpha = 0;
-  private _landBeta  = Math.PI / 3;
-
   constructor(
     scene: Scene,
     globeCamera: ArcRotateCamera,
@@ -108,8 +104,6 @@ export class ModeManager {
 
     const alpha = fromPin?.alpha ?? this._globeCamera.alpha;
     const beta  = fromPin?.beta  ?? this._globeCamera.beta;
-    this._landAlpha = alpha;
-    this._landBeta  = beta;
 
     const sample = sampleGlobeAtCamera(alpha, beta);
     const biomeId = sample.biomeId;
@@ -199,12 +193,5 @@ export class ModeManager {
       this._floatingOrigin.setWorldPosition(pos.x, pos.y, pos.z);
       this._chunkStreamer?.updatePlayerPosition(pos.x, pos.z);
     }
-  }
-
-  // Keep _landAlpha / _landBeta alive for future use — referenced here so
-  // TypeScript does not flag them as unused.
-  private _keepAlive(): void {
-    void this._landAlpha;
-    void this._landBeta;
   }
 }
